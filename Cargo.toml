@@ -1,5 +1,5 @@
 [package]
-name = "ci-local-runner"
+name = "preflight-ci"
 version = "0.1.0"
 edition = "2024"
 

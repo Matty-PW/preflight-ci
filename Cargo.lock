@@ -132,19 +132,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "ci-local-runner"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bollard",
- "clap",
- "futures-util",
- "serde",
- "serde_yaml",
- "tokio",
-]
-
-[[package]]
 name = "clap"
 version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -633,6 +620,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0103b1cef7ec0cf76490e969665504990193874ea05c85ff9bab8b911d0a0564"
 dependencies = [
  "zerovec",
+]
+
+[[package]]
+name = "preflight-ci"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bollard",
+ "clap",
+ "futures-util",
+ "serde",
+ "serde_yaml",
+ "tokio",
 ]
 
 [[package]]
