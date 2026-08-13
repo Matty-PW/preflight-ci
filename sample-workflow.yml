@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say hello
+        run: echo "hello from preflight-ci"
+      - name: list files
+        run: ls -la
+      - name: run tests
+        run: echo "pretend this runs pytest"

@@ -1,0 +1,6 @@
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: A different steps
+        run: echo "this is the other file"
