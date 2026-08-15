@@ -17,10 +17,10 @@ Currently working:
 - CLI interface: `preflight-ci run <job-name> --workflow <path>`
 - Lists the steps a given job would execute, with clear errors for
   missing files or unknown job names
+- Executing steps inside a Docker container
+- Streaming live output as steps run
 
 Not yet built:
-- Actually executing steps inside a Docker container
-- Streaming live output as steps run
 - Environment variable / secrets injection
 - Matrix build support
 
