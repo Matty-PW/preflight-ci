@@ -113,6 +113,15 @@ async fn main() -> anyhow::Result<()> {
         let step_name = step.name.as_deref().unwrap_or("(unnamed step)");
         println!("=== {} ===", step_name);
 
+        // converts the steps hash,ap into dockers exec apis prefered layout
+        let env_vars: Vec<String> = step
+            .env
+            .iter()
+            .map(|(key, value)| format!("{}={}", key, value))
+            .collect();
+
+        let env_refs: Vec<&str> = env_vars.iter().map(String::as_str).collect();
+
         let exec = docker
             .create_exec(
                 container_name,
@@ -120,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
                     cmd: Some(vec!["sh", "-c", run_command.as_str()]),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
+                    env: Some(env_refs),
                     ..Default::default()
                 },
             )

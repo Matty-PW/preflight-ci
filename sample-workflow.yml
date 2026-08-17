@@ -14,3 +14,6 @@ jobs:
         run: ls -la
       - name: run tests
         run: echo "pretend this runs pytest"
+      - name: Print env var
+        run: echo "MY_VAR is $MY_VAR"
+        
