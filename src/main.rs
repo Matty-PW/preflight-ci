@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 use bollard::query_parameters::CreateImageOptionsBuilder;
+use indicatif::{ProgressBar, ProgressStyle};
 
 // serde_yaml will look for a top level "jobs:" key
 // automatically matching the field name jobs below
@@ -102,9 +103,33 @@ async fn main() -> anyhow::Result<()> {
     println!("Pulling Image {}...", image);
     let pull_options = CreateImageOptionsBuilder::new().from_image(image).build();
 
+    let pb = ProgressBar::new(0);
+    
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
+        )
+        .unwrap()
+        .progress_chars("=>-"),
+    );
+
+    let mut layer_progress: HashMap<String, (u64, u64)> = HashMap::new();
+
     let mut pull_stream = docker.create_image(Some(pull_options), None, None);
     while let Some(result) = pull_stream.next().await {
-         result?;
+         let info = result?;
+
+         if let (Some(id), Some(detail)) = (info.id, info.progress_detail) {
+            if let (Some(current), Some(total)) = (detail.current, detail.total) {
+                layer_progress.insert(id, (current as u64, total as u64));
+
+                let total_current: u64 = layer_progress.values().map(|(c, _)| *c).sum();
+                let total_total: u64 = layer_progress.values().map(|(_, t)| *t).sum();
+
+                pb.set_length(total_total);
+                pb.set_position(total_current);
+            }
+        }
     }
     println!("Image ready. \n");
 
