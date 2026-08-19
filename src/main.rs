@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
+use bollard::query_parameters::CreateImageOptionsBuilder;
 
 // serde_yaml will look for a top level "jobs:" key
 // automatically matching the field name jobs below
@@ -57,15 +58,25 @@ enum Commands {
     },
 }
 
-fn map_runs_on_to_image(runs_on: &str) -> &str {
+fn map_runs_on_to_image(runs_on: &str) -> anyhow::Result<&str> {
     match runs_on {
-        "ubuntu-latest" | "ubuntu:22.04" => "ubuntu:22.04",
+        "ubuntu-latest" | "ubuntu:24.04" => Ok("ubuntu:24.04"),
+        "ubuntu-22.04" => Ok("ubuntu:22.04"),
+        "ubuntu-20.04" => Ok("ubuntu-20.04"),
+        "ubuntu-26.04" => Ok("ubuntu-26.04"),
+
+        other if other.starts_with("macos") => anyhow::bail!(
+            "'{}' targets macOS, which preflight-ci can't run locally - Docker containers are Linux only", other
+        ),
+        other if other.starts_with("windows") => anyhow::bail!(
+            "'{}' targets Window, which preflight-ci can't run locally - Docker containers are Linux only", other
+        ),
         other => {
             println!(
                 "warning: no image mapping for '{}', defaulting to ubuntu:22.04",
             other
         );
-        "ubuntu:22.04"
+        Ok("ubuntu:22.04")
         }
     }
 }
@@ -86,7 +97,16 @@ async fn main() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("job '{}' not found in workflow", job))?;
 
     let docker = Docker::connect_with_local_defaults()?;
-    let image = map_runs_on_to_image(&job_def.runs_on);
+    let image = map_runs_on_to_image(&job_def.runs_on)?;
+
+    println!("Pulling Image {}...", image);
+    let pull_options = CreateImageOptionsBuilder::new().from_image(image).build();
+
+    let mut pull_stream = docker.create_image(Some(pull_options), None, None);
+    while let Some(result) = pull_stream.next().await {
+         result?;
+    }
+    println!("Image ready. \n");
 
     let unique_suffix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
