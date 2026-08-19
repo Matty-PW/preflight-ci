@@ -10,6 +10,8 @@ jobs:
     steps:
       - name: Say hello
         run: echo "hello from preflight-ci"
+      - name: wait 5 seconds
+        run: sleep 5
       - name: list files
         run: ls -la
       - name: run tests

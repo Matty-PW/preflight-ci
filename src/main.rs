@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // serde_yaml will look for a top level "jobs:" key
 // automatically matching the field name jobs below
@@ -86,7 +87,12 @@ async fn main() -> anyhow::Result<()> {
 
     let docker = Docker::connect_with_local_defaults()?;
     let image = map_runs_on_to_image(&job_def.runs_on);
-    let container_name = "preflight-ci-test";
+
+    let unique_suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let container_name = format!("preflight-ci-{}", unique_suffix);
 
     let config = ContainerCreateBody {
         image: Some(image.to_string()),
@@ -94,11 +100,11 @@ async fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
     let create_options = CreateContainerOptionsBuilder::new()
-        .name(container_name)
+        .name(&container_name)
         .build();
 
     docker.create_container(Some(create_options), config).await?;
-    docker.start_container(container_name, None).await?;
+    docker.start_container(&container_name, None).await?;
     println!("Container started using image: {}\n", image);
 
     let mut all_passed = true;
@@ -124,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
 
         let exec = docker
             .create_exec(
-                container_name,
+                &container_name,
                 CreateExecOptions {
                     cmd: Some(vec!["sh", "-c", run_command.as_str()]),
                     attach_stdout: Some(true),
@@ -158,7 +164,7 @@ async fn main() -> anyhow::Result<()> {
 
     let remove_options = RemoveContainerOptionsBuilder::new().force(true).build();
     docker
-        .remove_container(container_name, Some(remove_options))
+        .remove_container(&container_name, Some(remove_options))
         .await?;
 
     if all_passed {
