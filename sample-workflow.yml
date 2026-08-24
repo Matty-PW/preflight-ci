@@ -7,6 +7,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        greeting: [hello, hi, helo]
     steps:
       - name: Say hello
         run: echo "hello from preflight-ci"
@@ -18,4 +21,6 @@ jobs:
         run: echo "pretend this runs pytest"
       - name: Print env var
         run: echo "MY_VAR is $MY_VAR"
+        env:
+          MY_VAR: hello
         
