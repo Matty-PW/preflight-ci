@@ -287,3 +287,88 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ubuntu_latest_maps_to_know_image() {
+        let result = map_runs_on_to_image("ubuntu-latest").unwrap();
+        assert_eq!(result, "ubuntu:24.04");
+    }
+
+    #[test]
+    fn macos_is_rejected() {
+        let result = map_runs_on_to_image("macos-latest");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn windows_is_rejected() {
+        let result = map_runs_on_to_image("windows-latest");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_runner_falls_back_with_warning() {
+        let result = map_runs_on_to_image("some-future-runner");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn single_dimension_matrix_produces_one_combo_per_value() {
+        let mut matrix = HashMap::new();
+        matrix.insert(
+            "greeting".to_string(),
+            vec![
+                serde_yaml::Value::String("hello".to_string()),
+                serde_yaml::Value::String("hi".to_string()),
+            ],
+        );
+        let combos = matrix_combinations(&matrix);
+        assert_eq!(combos.len(), 2);
+    }
+
+    #[test]
+    fn two_dimension_matrix_produces_cartesian_product() {
+        let mut matrix = HashMap::new();
+        matrix.insert(
+            "os".to_string(),
+            vec![serde_yaml::Value::String("ubuntu".to_string())],
+        );
+        matrix.insert(
+            "version".to_string(),
+            vec![
+                serde_yaml::Value::Number(18.into()),
+                serde_yaml::Value::Number(20.into()),
+            ],
+        );
+        let combos = matrix_combinations(&matrix);
+        assert_eq!(combos.len(), 2);
+    }
+
+    #[test]
+    fn substitution_leaves_text_without_placeholders_unchanged() {
+        let combo = HashMap::new();
+        let result = substitute_matrix_vars("echo hello", &combo);
+        assert_eq!(result, "echo hello");
+    }
+
+    #[test]
+    fn parses_minimal_workflow() {
+        let yaml = r#"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: A step
+        run: echo hi
+"#;
+        let workflow: Workflow = serde_yaml::from_str(yaml).unwrap();
+        let job = workflow.jobs.get("test").unwrap();
+        assert_eq!(job.runs_on, "ubuntu-latest");
+        assert_eq!(job.steps.len(), 1);
+    }
+}
+
