@@ -1,8 +1,9 @@
-use bollard::Docker;
+use bollard::{Docker};
 use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::models::ContainerCreateBody;
-use bollard::query_parameters::CreateImageOptionsBuilder;
-use bollard::query_parameters::{CreateContainerOptionsBuilder, RemoveContainerOptionsBuilder};
+use bollard::query_parameters::{
+    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder
+};
 use clap::{Parser, Subcommand};
 use futures_util::stream::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -59,6 +60,7 @@ enum Commands {
         workflow: String,
     },
 }
+
 
 #[derive(Debug, Deserialize)]
 struct Strategy {
@@ -127,6 +129,144 @@ fn map_runs_on_to_image(runs_on: &str) -> anyhow::Result<&str> {
     }
 }
 
+async fn pull_image(docker: &Docker, image: &str) -> anyhow::Result<()> {
+    println!("Pulling image: {}", image);
+    let pull_options = CreateImageOptionsBuilder::new().from_image(image).build();
+
+    let pb = ProgressBar::new(0);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{bar:40.cyan/blue}] {bytes} / {total_bytes} ({eta})",
+        )
+        .unwrap()
+        .progress_chars("=>-"),
+    );
+
+    let mut layer_progress: HashMap<String, (u64, u64)> = HashMap::new();
+    let mut pull_stream = docker.create_image(Some(pull_options), None, None);
+    while let Some(result) = pull_stream.next().await {
+        let info = result?;
+        if let (Some(id), Some(detail)) = (info.id, info.progress_detail) {
+            if let (Some(current), Some(total)) = (detail.current, detail.total) {
+                layer_progress.insert(id, (current as u64, total as u64));
+                let total_current: u64 = layer_progress.values().map(|(c, _)| *c).sum();
+                let total_total: u64 = layer_progress.values().map(|(_, t)| *t).sum();
+                pb.set_length(total_total);
+                pb.set_position(total_current);
+            }
+        }
+    }
+    pb.finish_with_message("done");
+    println!("Image ready. \n");
+
+    Ok(())
+}
+
+async fn run_step(
+    docker: &Docker,
+    container_name: &str,
+    step: &Step,
+    combo: &HashMap<String, String>,
+) -> anyhow::Result<bool> {
+    let Some(run_command_raw) = &step.run else {
+        println!("Skipping step (no 'run' command - 'uses' isn't supported yet)\n");
+        return Ok(true);
+    };
+    let run_command = substitute_matrix_vars(run_command_raw, combo);
+
+    let step_name = step.name.as_deref().unwrap_or("(unnamed step)");
+    println!("--- {} ---", step_name);
+
+    let env_vars: Vec<String> = step
+        .env
+        .iter()
+        .map(|(key, value)| format!("{}={}", key, substitute_matrix_vars(value, combo)))
+        .collect();
+    let env_refs: Vec<&str> = env_vars.iter().map(String::as_str).collect();
+
+    let exec = docker
+        .create_exec(
+            container_name,
+            CreateExecOptions {
+                cmd: Some(vec!["sh", "-c", run_command.as_str()]),
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
+                env: Some(env_refs),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    if let StartExecResults::Attached { mut output, .. } =
+        docker.start_exec(&exec.id, None).await?
+    {
+        while let Some(Ok(chunk)) = output.next().await {
+            print!("{}", chunk);
+        }
+    }
+
+    let inspect = docker.inspect_exec(&exec.id).await?;
+    let exit_code = inspect.exit_code.unwrap_or(-1);
+
+    if exit_code != 0 {
+        println!("\nStep failed with exit code {}\n", exit_code);
+        return Ok(false);
+    }
+    println!();
+    Ok(true)
+}
+
+// runs every step of job_def inside a fresh container 
+// using combo for every matrix variable substitution
+// returns whether everystep has passed
+async fn run_combination(
+    docker: &Docker,
+    image: &str,
+    job_def: &Job,
+    combo: &HashMap<String, String>,
+) -> anyhow::Result<bool> {
+    if !combo.is_empty() {
+        let combo_desc: Vec<String> =
+            combo.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
+        println!("### Matrix: {} ###\n", combo_desc.join(", "));
+    }
+
+    let unique_suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let container_name = format!("preflight-ci-{}", unique_suffix);
+
+    let config = ContainerCreateBody {
+        image: Some(image.to_string()),
+        cmd: Some(vec!["sleep".to_string(), "infinity".to_string()]),
+        ..Default::default()
+    };
+    let create_options = CreateContainerOptionsBuilder::new()
+        .name(&container_name)
+        .build();
+
+    docker.create_container(Some(create_options), config).await?;
+    docker.start_container(&container_name, None).await?;
+    println!("Container started using image: {}\n", image);
+
+    let mut combo_passed = true;
+
+    for step in &job_def.steps {
+        if !run_step(docker, &container_name, step, combo).await? {
+            combo_passed = false;
+            break;
+        }
+    }
+
+    let remove_options = RemoveContainerOptionsBuilder::new().force(true).build();
+    docker
+        .remove_container(&container_name, Some(remove_options))
+        .await?;
+
+    Ok(combo_passed)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // cli::parse() reads the arguements the user typed
@@ -145,38 +285,7 @@ async fn main() -> anyhow::Result<()> {
     let docker = Docker::connect_with_local_defaults()?;
     let image = map_runs_on_to_image(&job_def.runs_on)?;
 
-    println!("Pulling Image {}...", image);
-    let pull_options = CreateImageOptionsBuilder::new().from_image(image).build();
-
-    let pb = ProgressBar::new(0);
-
-    pb.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
-        )
-        .unwrap()
-        .progress_chars("=>-"),
-    );
-
-    let mut layer_progress: HashMap<String, (u64, u64)> = HashMap::new();
-
-    let mut pull_stream = docker.create_image(Some(pull_options), None, None);
-    while let Some(result) = pull_stream.next().await {
-        let info = result?;
-
-        if let (Some(id), Some(detail)) = (info.id, info.progress_detail) {
-            if let (Some(current), Some(total)) = (detail.current, detail.total) {
-                layer_progress.insert(id, (current as u64, total as u64));
-
-                let total_current: u64 = layer_progress.values().map(|(c, _)| *c).sum();
-                let total_total: u64 = layer_progress.values().map(|(_, t)| *t).sum();
-
-                pb.set_length(total_total);
-                pb.set_position(total_current);
-            }
-        }
-    }
-    println!("Image ready. \n");
+    pull_image(&docker, image).await?;
 
     let combinations: Vec<HashMap<String, String>> = match &job_def.strategy {
         Some(strategy) => matrix_combinations(&strategy.matrix),
@@ -184,96 +293,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut overall_passed = true;
-
     for combo in &combinations {
-        if !combo.is_empty() {
-            let combo_desc: Vec<String> =
-                combo.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
-            println!("### Matrix: {} ###\n", combo_desc.join(", "));
-        }
-
-        let unique_suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let container_name = format!("preflight-ci-{}", unique_suffix);
-
-        let config = ContainerCreateBody {
-            image: Some(image.to_string()),
-            cmd: Some(vec!["sleep".to_string(), "infinity".to_string()]),
-            ..Default::default()
-        };
-        let create_options = CreateContainerOptionsBuilder::new()
-            .name(&container_name)
-            .build();
-
-        docker
-            .create_container(Some(create_options), config)
-            .await?;
-        docker.start_container(&container_name, None).await?;
-        println!("Container started using image: {}\n", image);
-
-        let mut combo_passed = true;
-
-        for step in &job_def.steps {
-            // dont support 'uses:' only support 'run:' for the moment so skip 'uses:' without crashing
-            let Some(run_command_raw) = &step.run else {
-                println!("Skipping step (no 'run' command - 'uses' isnt supported yet \n");
-                continue;
-            };
-            let run_command = substitute_matrix_vars(run_command_raw, combo);
-
-            let step_name = step.name.as_deref().unwrap_or("(unnamed step)");
-            println!("=== {} ===", step_name);
-
-            // converts the steps hash,ap into dockers exec apis prefered layout
-            let env_vars: Vec<String> = step
-                .env
-                .iter()
-                .map(|(key, value)| format!("{}={}", key, value))
-                .collect();
-
-            let env_refs: Vec<&str> = env_vars.iter().map(String::as_str).collect();
-
-            let exec = docker
-                .create_exec(
-                    &container_name,
-                    CreateExecOptions {
-                        cmd: Some(vec!["sh", "-c", run_command.as_str()]),
-                        attach_stdout: Some(true),
-                        attach_stderr: Some(true),
-                        env: Some(env_refs),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-
-            if let StartExecResults::Attached { mut output, .. } =
-                docker.start_exec(&exec.id, None).await?
-            {
-                while let Some(Ok(chunk)) = output.next().await {
-                    print!("{}", chunk);
-                }
-            }
-
-            // asks docker what actually happened rather than just showing output
-            let inspect = docker.inspect_exec(&exec.id).await?;
-            let exit_code = inspect.exit_code.unwrap_or(-1);
-
-            if exit_code != 0 {
-                println!("\nStep failed with exit code {}\n", exit_code);
-                combo_passed = false;
-                break;
-            }
-            println!();
-        }
-
-        let remove_options = RemoveContainerOptionsBuilder::new().force(true).build();
-        docker
-            .remove_container(&container_name, Some(remove_options))
-            .await?;
-
-        if !combo_passed {
+        if !run_combination(&docker, image, job_def, combo).await? {
             overall_passed = false;
         }
     }
@@ -287,6 +308,7 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+
 
 #[cfg(test)]
 mod tests {
