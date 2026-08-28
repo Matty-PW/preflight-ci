@@ -63,7 +63,7 @@ Examples:
 ## Tech stack
 
 - Rust
-- clap — CLI argument parsing
-- serde / serde_yaml — parsing the workflow YAML
-- tokio + bollard — Docker container execution
+- clap - CLI argument parsing
+- serde / serde_yaml - parsing the workflow YAML
+- tokio + bollard - Docker container execution
 - indicatif - terminal progress bar for image pulls
