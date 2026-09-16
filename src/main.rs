@@ -1,8 +1,8 @@
-use bollard::{Docker};
+use bollard::Docker;
 use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::models::ContainerCreateBody;
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder
+    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder,
 };
 use clap::{Parser, Subcommand};
 use futures_util::stream::StreamExt;
@@ -61,7 +61,6 @@ enum Commands {
     },
 }
 
-
 #[derive(Debug, Deserialize)]
 struct Strategy {
     matrix: HashMap<String, Vec<serde_yaml::Value>>,
@@ -108,11 +107,11 @@ fn map_runs_on_to_image(runs_on: &str) -> anyhow::Result<&str> {
     match runs_on {
         "ubuntu-latest" | "ubuntu:24.04" => Ok("ubuntu:24.04"),
         "ubuntu-22.04" => Ok("ubuntu:22.04"),
-        "ubuntu-20.04" => Ok("ubuntu-20.04"),
-        "ubuntu-26.04" => Ok("ubuntu-26.04"),
+        "ubuntu-20.04" => Ok("ubuntu:20.04"),
+        "ubuntu-26.04" => Ok("ubuntu:26.04"),
 
         other if other.starts_with("macos") => anyhow::bail!(
-            "'{}' targets macOS, which preflight-ci can't run locally - Docker containers are Linux only",
+            "'{}' targets macOS, which preflight-ci can't run locally - Docker containers are Linux only", 
             other
         ),
         other if other.starts_with("windows") => anyhow::bail!(
@@ -197,8 +196,7 @@ async fn run_step(
         )
         .await?;
 
-    if let StartExecResults::Attached { mut output, .. } =
-        docker.start_exec(&exec.id, None).await?
+    if let StartExecResults::Attached { mut output, .. } = docker.start_exec(&exec.id, None).await?
     {
         while let Some(Ok(chunk)) = output.next().await {
             print!("{}", chunk);
@@ -216,7 +214,7 @@ async fn run_step(
     Ok(true)
 }
 
-// runs every step of job_def inside a fresh container 
+// runs every step of job_def inside a fresh container
 // using combo for every matrix variable substitution
 // returns whether everystep has passed
 async fn run_combination(
@@ -226,8 +224,7 @@ async fn run_combination(
     combo: &HashMap<String, String>,
 ) -> anyhow::Result<bool> {
     if !combo.is_empty() {
-        let combo_desc: Vec<String> =
-            combo.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
+        let combo_desc: Vec<String> = combo.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
         println!("### Matrix: {} ###\n", combo_desc.join(", "));
     }
 
@@ -246,7 +243,9 @@ async fn run_combination(
         .name(&container_name)
         .build();
 
-    docker.create_container(Some(create_options), config).await?;
+    docker
+        .create_container(Some(create_options), config)
+        .await?;
     docker.start_container(&container_name, None).await?;
     println!("Container started using image: {}\n", image);
 
@@ -308,7 +307,6 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -393,4 +391,3 @@ jobs:
         assert_eq!(job.steps.len(), 1);
     }
 }
-

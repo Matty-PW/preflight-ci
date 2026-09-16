@@ -1,7 +1,7 @@
+use bollard::Docker;
 use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::models::ContainerCreateBody;
 use bollard::query_parameters::{CreateContainerOptionsBuilder, RemoveContainerOptionsBuilder};
-use bollard::Docker;
 use futures_util::stream::StreamExt;
 
 #[tokio::main]
@@ -24,21 +24,23 @@ async fn main() -> anyhow::Result<()> {
     docker.start_container("preflight-ci-test", None).await?;
     println!("container started");
 
-
     let exec = docker
         .create_exec(
             "preflight-ci-test",
             CreateExecOptions {
-                cmd: Some(vec!["sh", "-c", "echo hello && sleep 1 && echo space && sleep 3 && ls"]),
+                cmd: Some(vec![
+                    "sh",
+                    "-c",
+                    "echo hello && sleep 1 && echo space && sleep 3 && ls",
+                ]),
                 attach_stdout: Some(true),
-                attach_stderr: Some(true),  
+                attach_stderr: Some(true),
                 ..Default::default()
             },
         )
         .await?;
 
-    if let StartExecResults::Attached { mut output, .. } =
-        docker.start_exec(&exec.id, None).await?
+    if let StartExecResults::Attached { mut output, .. } = docker.start_exec(&exec.id, None).await?
     {
         while let Some(Ok(chunk)) = output.next().await {
             print!("{}", chunk);
