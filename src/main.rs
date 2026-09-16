@@ -147,6 +147,7 @@ async fn pull_image(docker: &Docker, image: &str) -> anyhow::Result<()> {
     let mut pull_stream = docker.create_image(Some(pull_options), None, None);
     while let Some(result) = pull_stream.next().await {
         let info = result?;
+        #[allow(clippy::collapsible_if)]
         if let (Some(id), Some(detail)) = (info.id, info.progress_detail) {
             if let (Some(current), Some(total)) = (detail.current, detail.total) {
                 layer_progress.insert(id, (current as u64, total as u64));
