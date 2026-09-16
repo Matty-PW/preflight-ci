@@ -1,5 +1,7 @@
 # preflight-ci
 
+[![CI](https://github.com/Matty-PW/preflight-ci/actions/workflows/ci.yml/badge.svg)](https://github.com/Matty-PW/preflight-ci/actions/workflows/ci.yml)
+
 A CLI tool that runs your GitHub Actions workflow locally, in an isolated Docker container, so you know
 whether your CI pipeline will pass before you push.
 
