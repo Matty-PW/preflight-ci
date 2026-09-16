@@ -113,7 +113,7 @@ fn map_runs_on_to_image(runs_on: &str) -> anyhow::Result<&str> {
         "ubuntu-26.04" => Ok("ubuntu:26.04"),
 
         other if other.starts_with("macos") => anyhow::bail!(
-            "'{}' targets macOS, which preflight-ci can't run locally - Docker containers are Linux only", 
+            "'{}' targets macOS, which preflight-ci can't run locally - Docker containers are Linux only",
             other
         ),
         other if other.starts_with("windows") => anyhow::bail!(
