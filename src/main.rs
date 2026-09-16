@@ -1,6 +1,6 @@
 use bollard::Docker;
 use bollard::exec::{CreateExecOptions, StartExecResults};
-use bollard::models::ContainerCreateBody;
+use bollard::models::{ContainerCreateBody, HostConfig};
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder,
 };
@@ -11,6 +11,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const CONTAINER_WORKSPACE: &str = "/workspace";
 
 // serde_yaml will look for a top level "jobs:" key
 // automatically matching the field name jobs below
@@ -191,6 +193,7 @@ async fn run_step(
                 attach_stdout: Some(true),
                 attach_stderr: Some(true),
                 env: Some(env_refs),
+                working_dir: Some(CONTAINER_WORKSPACE),
                 ..Default::default()
             },
         )
@@ -234,9 +237,17 @@ async fn run_combination(
         .as_millis();
     let container_name = format!("preflight-ci-{}", unique_suffix);
 
+    let host_path = std::env::current_dir()?.display().to_string();
+    let host_config = HostConfig {
+        binds: Some(vec![format!("{}:{}", host_path, CONTAINER_WORKSPACE)]),
+        ..Default::default()
+    };
+
     let config = ContainerCreateBody {
         image: Some(image.to_string()),
         cmd: Some(vec!["sleep".to_string(), "infinity".to_string()]),
+        working_dir: Some(CONTAINER_WORKSPACE.to_string()),
+        host_config: Some(host_config),
         ..Default::default()
     };
     let create_options = CreateContainerOptionsBuilder::new()
