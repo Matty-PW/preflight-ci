@@ -29,7 +29,7 @@ on a CI config, without having to push and wait every time.
 - `uses:` steps (3rd party github actions) are not supported, they are currently skipped and counted as passed
 - Only ubuntu runners are supported. macOS and Windows jobs fail with error messages rather than running incorrently
 - Matrix combinations are run sequentially, not in parallel
-- No caching between runs beyond Dockers own image cache, each run recreates its container from scratch
+- No caching between runs beyond Docker's own image cache, each run recreates its container from scratch
 - Only a subset of real workflow is understood - no `if:` conditionals, `needs:` job dependencies or reusable workflows
 
 ## Installation
@@ -46,7 +46,7 @@ Examples:
 
     preflight-ci run test --workflow sample-workflow.yml
 
-  Matrix exampple - a job like this runs once per value in the matrix
+  Matrix example - a job like this runs once per value in the matrix
 
     jobs:
       test:
