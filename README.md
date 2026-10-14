@@ -21,13 +21,13 @@ on a CI config, without having to push and wait every time.
 - Automatically pulls missing images with a live progress bar
 - Rejects `macos-*` and `windows-*` runners with error message
 - Supports `strategy.matrix` builds
-- Generates a unique container name per run so a crash previous run does block a new one
+- Generates a unique container name per run so a crash previous run does not block a new one
 - CLI interface: `preflight-ci run <job-name> --workflow <path>`
 
 ## Limitations
 
 - `uses:` steps (3rd party github actions) are not supported, they are currently skipped and counted as passed
-- Only ubuntu runners are supported. macOS and Windows jobs fail with error messages rather than running incorrently
+- Only ubuntu runners are supported. macOS and Windows jobs fail with error messages rather than running incorrectly
 - Matrix combinations are run sequentially, not in parallel
 - No caching between runs beyond Docker's own image cache, each run recreates its container from scratch
 - Only a subset of real workflow is understood - no `if:` conditionals, `needs:` job dependencies or reusable workflows
