@@ -218,9 +218,21 @@ async fn run_step(
     Ok(true)
 }
 
-// runs every step of job_def inside a fresh container
-// using combo for every matrix variable substitution
-// returns whether everystep has passed
+async fn run_steps_in_container(
+    docker: &Docker,
+    container_name: &str,
+    job_def: &Job,
+    combo: &HashMap<String, String>,
+) -> anyhow::Result<bool> {
+    docker.start_container(container_name, None).await?;
+
+    for step in &job_def.steps {
+        if !run_step(docker, container_name, step, combo).await? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
 async fn run_combination(
     docker: &Docker,
     image: &str,
@@ -258,24 +270,18 @@ async fn run_combination(
     docker
         .create_container(Some(create_options), config)
         .await?;
-    docker.start_container(&container_name, None).await?;
-    println!("Container started using image: {}\n", image);
+    println!("Running in container using image: {}\n", image);
 
-    let mut combo_passed = true;
-
-    for step in &job_def.steps {
-        if !run_step(docker, &container_name, step, combo).await? {
-            combo_passed = false;
-            break;
-        }
-    }
+    let result = run_steps_in_container(docker, &container_name, job_def, combo).await;
 
     let remove_options = RemoveContainerOptionsBuilder::new().force(true).build();
-    docker
+    let cleanup = docker
         .remove_container(&container_name, Some(remove_options))
-        .await?;
+        .await;
 
-    Ok(combo_passed)
+    let passed = result?;
+    cleanup?;
+    Ok(passed)
 }
 
 #[tokio::main]
