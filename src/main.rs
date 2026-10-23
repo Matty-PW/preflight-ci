@@ -57,9 +57,9 @@ enum Commands {
         // no attribute = positional argument
         job: String,
 
-        // default_value lets it fall back if omitted
-        #[arg(long, default_value = "sample-workflow.yml")]
-        workflow: String,
+        // optional: if ommitted, search .github
+        #[arg(long)]
+        workflow: Option<String>,
     },
 }
 
@@ -284,6 +284,58 @@ async fn run_combination(
     Ok(passed)
 }
 
+fn load_workflow(path: &str) -> anyhow::Result<Workflow> {
+    let raw = fs::read_to_string(path)?;
+    Ok(serde_yaml::from_str(&raw)?)
+}
+
+fn find_workflow_for_job(job: &str) -> anyhow::Result<String> {
+    let dir = ".github/workflows";
+    let entries = fs::read_dir(dir).map_err(|e| {
+        anyhow::anyhow!(
+            "couldn't read '{}': {} (use --workflow to give a path)",
+            dir,
+            e
+        )
+    })?;
+
+    let mut found: Vec<String> = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+
+        let is_yaml = matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("yml") | Some("yaml")
+        );
+        if !is_yaml {
+            continue;
+        }
+
+        let path_str = path.display().to_string();
+        match load_workflow(&path_str) {
+            Ok(wf) => {
+                if wf.jobs.contains_key(job) {
+                    found.push(path_str);
+                }
+            }
+            Err(e) => println!("warning: skipping '{}': {}", path_str, e),
+        }
+    }
+
+    // read_dir order is arbitrary so sort for stable output
+    found.sort();
+
+    match found.len() {
+        0 => anyhow::bail!("no workflow in '{}' defines a job named '{}'", dir, job),
+        1 => Ok(found.remove(0)),
+        _ => anyhow::bail!(
+            "job '{}' is defined in several files:\n {}\nuse --workflow to pick one",
+            job,
+            found.join("\n ")
+        ),
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // cli::parse() reads the arguements the user typed
@@ -291,8 +343,12 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let Commands::Run { job, workflow } = cli.command;
 
-    let raw = fs::read_to_string(&workflow)?;
-    let parsed: Workflow = serde_yaml::from_str(&raw)?;
+    let workflow_path = match workflow {
+        Some(path) => path,
+        None => find_workflow_for_job(&job)?,
+    };
+    println!("Using workflow: {}\n", workflow_path);
+    let parsed = load_workflow(&workflow_path)?;
 
     let job_def = parsed
         .jobs
