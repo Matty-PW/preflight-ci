@@ -22,15 +22,21 @@ on a CI config, without having to push and wait every time.
 - Rejects `macos-*` and `windows-*` runners with error message
 - Supports `strategy.matrix` builds
 - Generates a unique container name per run so a crash previous run does not block a new one
-- CLI interface: `preflight-ci run <job-name> --workflow <path>`
+- Finds your workflow automatically in `.github/workflows/`, or takes an explicit path with `--workflow`
+- Mounts your project folder into the container at `/workspace`, so steps run against your real source code
+- Always removes the container afterwards, even if a step hits an error
 
-## Limitations
+## Limitations / Notes
 
 - `uses:` steps (3rd party github actions) are not supported, they are currently skipped and counted as passed
 - Only ubuntu runners are supported. macOS and Windows jobs fail with error messages rather than running incorrectly
 - Matrix combinations are run sequentially, not in parallel
 - No caching between runs beyond Docker's own image cache, each run recreates its container from scratch
-- Only a subset of real workflow is understood - no `if:` conditionals, `needs:` job dependencies or reusable workflows
+- no workflow-level or job-level env:, `if:` conditionals, `needs:` job dependencies or reusable workflows
+- Your project folder is mounted live, not copied, so steps that write files (such as `cargo build`) write to your real folder. Linux build output in `target/` can confuse a macOS build, so run `cargo clean` if that happens
+- Containers start from a bare Ubuntu image with no toolchains, so a workflow that needs Rust, Node or Python must install it in a `run:` step
+- Pressing Ctrl+C mid-run can leave a `preflight-ci-*` container behind (remove it with `docker rm -f <name>`)
+  
 
 ## Installation
 
@@ -39,12 +45,17 @@ on a CI config, without having to push and wait every time.
 This installs `preflight-ci` to `~/.cargo/bin`, which is on your path if you installed Rust via rustup
 
 ## Usage
+From the root of your project:
+
+    preflight-ci run <job-name>
+
+preflight-ci searches `.github/workflows/` for a file that defines the job. If no file defines it, or more than one does, it stops with an error. In the second case, pick a file explicitly:
 
     preflight-ci run <job-name> --workflow path/to/workflow.yml
 
-Examples:
+Example:
 
-    preflight-ci run test --workflow sample-workflow.yml
+    preflight-ci run test --workflow examples/sample-workflow.yml
 
   Matrix example - a job like this runs once per value in the matrix
 
