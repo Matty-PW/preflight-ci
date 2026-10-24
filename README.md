@@ -35,7 +35,7 @@ on a CI config, without having to push and wait every time.
 - no workflow-level or job-level env:, `if:` conditionals, `needs:` job dependencies or reusable workflows
 - Your project folder is mounted live, not copied, so steps that write files (such as `cargo build`) write to your real folder. Linux build output in `target/` can confuse a macOS build, so run `cargo clean` if that happens
 - Containers start from a bare Ubuntu image with no toolchains, so a workflow that needs Rust, Node or Python must install it in a `run:` step
-- Pressing Ctrl+C mid-run can leave a `preflight-ci-*` container behind (remove it with `docker rm -f <name>`)
+- Pressing Ctrl+C mid-run can leave a `preflight-ci-*` container behind (check with `docker ps` and remove it with `docker rm -f <name>`)
   
 
 ## Installation
