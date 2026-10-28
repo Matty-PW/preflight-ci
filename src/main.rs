@@ -106,13 +106,17 @@ fn matrix_combinations(
     combinations
 }
 
-fn substitute_matrix_vars(text: &str, combo: &HashMap<String, String>) -> String {
+fn substitute_context(text: &str, context: &str, vars: &HashMap<String, String>) -> String {
     let mut result = text.to_string();
-    for (key, value) in combo {
-        let placeholder = format!("${{{{ matrix.{} }}}}", key);
+    for (key, value) in vars {
+        let placeholder = format!("${{{{ {}.{} }}}}", context, key);
         result = result.replace(&placeholder, value);
     }
     result
+}
+
+fn substitute_matrix_vars(text: &str, combo: &HashMap<String, String>) -> String {
+    substitute_context(text, "matrix", combo)
 }
 
 fn map_runs_on_to_image(runs_on: &str) -> anyhow::Result<&str> {
@@ -185,13 +189,16 @@ async fn run_step(
         println!("Skipping step (no 'run' command - 'uses' isn't supported yet)\n");
         return Ok(true);
     };
+
+    // layer the steps own env on top of the workflow/job env
+    let mut merged_env = base_env.clone();
+    merged_env.extend(env_to_string(&step.env));
+
     let run_command = substitute_matrix_vars(run_command_raw, combo);
+    let run_command = substitute_context(&run_command, "env", &merged_env);
 
     let step_name = step.name.as_deref().unwrap_or("(unnamed step)");
     println!("--- {} ---", step_name);
-
-    let mut merged_env = base_env.clone();
-    merged_env.extend(env_to_string(&step.env));
 
     let env_vars: Vec<String> = merged_env
         .iter()
@@ -504,5 +511,21 @@ jobs:
         );
         base.extend(env_to_string(&step));
         assert_eq!(base["A"], "step");
+    }
+
+    #[test]
+    fn env_placeholder_is_replaced() {
+        let mut env = HashMap::new();
+        env.insert("GREETING".to_string(), "hi".to_string());
+        let result = substitute_context("echo ${{ env.GREETING }}", "env", &env);
+        assert_eq!(result, "echo hi");
+    }
+
+    #[test]
+    fn context_substitution_ignores_other_contexts() {
+        let mut env = HashMap::new();
+        env.insert("X".to_string(), "1".to_string());
+        let result = substitute_context("${{ matrix.X }}", "env", &env);
+        assert_eq!(result, "${{ matrix.X }}");
     }
 }

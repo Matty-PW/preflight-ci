@@ -1,0 +1,17 @@
+name: Env expressions
+
+env:
+  APP_NAME: preflight-ci
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    env:
+      GREETING: hello
+    steps:
+      - name: Expression syntax
+        run: echo "${{ env.GREETING }} from ${{ env.APP_NAME }}"
+      - name: Step env is visible too
+        run: echo "mode is ${{ env.MODE }}"
+        env:
+          MODE: fast
