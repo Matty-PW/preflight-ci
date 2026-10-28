@@ -18,12 +18,16 @@ const CONTAINER_WORKSPACE: &str = "/workspace";
 // automatically matching the field name jobs below
 #[derive(Debug, Deserialize)]
 struct Workflow {
+    #[serde(default)]
+    env: HashMap<String, serde_yaml::Value>,
     jobs: HashMap<String, Job>,
 }
 
 // what machine it runs on and the ordered list of steps
 #[derive(Debug, Deserialize)]
 struct Job {
+    #[serde(default)]
+    env: HashMap<String, serde_yaml::Value>,
     // yaml uses "runs-on" but hyphens arent allowed in
     // rust identifiers so rename explicitly
     #[serde(rename = "runs-on")]
@@ -38,7 +42,7 @@ struct Step {
     name: Option<String>,
     run: Option<String>,
     #[serde(default)]
-    env: HashMap<String, String>,
+    env: HashMap<String, serde_yaml::Value>,
 }
 
 #[derive(Parser)]
@@ -75,6 +79,12 @@ fn value_to_string(value: &serde_yaml::Value) -> String {
         serde_yaml::Value::Bool(b) => b.to_string(),
         _ => format!("{:?}", value),
     }
+}
+
+fn env_to_string(env: &HashMap<String, serde_yaml::Value>) -> HashMap<String, String> {
+    env.iter()
+        .map(|(k, v)| (k.clone(), value_to_string(v)))
+        .collect()
 }
 
 fn matrix_combinations(
@@ -168,6 +178,7 @@ async fn run_step(
     docker: &Docker,
     container_name: &str,
     step: &Step,
+    base_env: &HashMap<String, String>,
     combo: &HashMap<String, String>,
 ) -> anyhow::Result<bool> {
     let Some(run_command_raw) = &step.run else {
@@ -179,8 +190,10 @@ async fn run_step(
     let step_name = step.name.as_deref().unwrap_or("(unnamed step)");
     println!("--- {} ---", step_name);
 
-    let env_vars: Vec<String> = step
-        .env
+    let mut merged_env = base_env.clone();
+    merged_env.extend(env_to_string(&step.env));
+
+    let env_vars: Vec<String> = merged_env
         .iter()
         .map(|(key, value)| format!("{}={}", key, substitute_matrix_vars(value, combo)))
         .collect();
@@ -222,12 +235,13 @@ async fn run_steps_in_container(
     docker: &Docker,
     container_name: &str,
     job_def: &Job,
+    base_env: &HashMap<String, String>,
     combo: &HashMap<String, String>,
 ) -> anyhow::Result<bool> {
     docker.start_container(container_name, None).await?;
 
     for step in &job_def.steps {
-        if !run_step(docker, container_name, step, combo).await? {
+        if !run_step(docker, container_name, step, base_env, combo).await? {
             return Ok(false);
         }
     }
@@ -237,6 +251,7 @@ async fn run_combination(
     docker: &Docker,
     image: &str,
     job_def: &Job,
+    base_env: &HashMap<String, String>,
     combo: &HashMap<String, String>,
 ) -> anyhow::Result<bool> {
     if !combo.is_empty() {
@@ -272,7 +287,7 @@ async fn run_combination(
         .await?;
     println!("Running in container using image: {}\n", image);
 
-    let result = run_steps_in_container(docker, &container_name, job_def, combo).await;
+    let result = run_steps_in_container(docker, &container_name, job_def, base_env, combo).await;
 
     let remove_options = RemoveContainerOptionsBuilder::new().force(true).build();
     let cleanup = docker
@@ -355,6 +370,9 @@ async fn main() -> anyhow::Result<()> {
         .get(&job)
         .ok_or_else(|| anyhow::anyhow!("job '{}' not found in workflow", job))?;
 
+    let mut base_env = env_to_string(&parsed.env);
+    base_env.extend(env_to_string(&job_def.env));
+
     let docker = Docker::connect_with_local_defaults()?;
     let image = map_runs_on_to_image(&job_def.runs_on)?;
 
@@ -367,7 +385,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut overall_passed = true;
     for combo in &combinations {
-        if !run_combination(&docker, image, job_def, combo).await? {
+        if !run_combination(&docker, image, job_def, &base_env, combo).await? {
             overall_passed = false;
         }
     }
@@ -463,5 +481,28 @@ jobs:
         let job = workflow.jobs.get("test").unwrap();
         assert_eq!(job.runs_on, "ubuntu-latest");
         assert_eq!(job.steps.len(), 1);
+    }
+
+    #[test]
+    fn env_values_of_any_scalar_type_become_strings() {
+        let mut env = HashMap::new();
+        env.insert("FLAG".to_string(), serde_yaml::Value::Bool(true));
+        env.insert("RETRIES".to_string(), serde_yaml::Value::Number(3.into()));
+        let result = env_to_string(&env);
+        assert_eq!(result["FLAG"], "true");
+        assert_eq!(result["RETRIES"], "3");
+    }
+
+    #[test]
+    fn later_env_layers_override_earlier_ones() {
+        let mut base = HashMap::new();
+        base.insert("A".to_string(), "workflow".to_string());
+        let mut step = HashMap::new();
+        step.insert(
+            "A".to_string(),
+            serde_yaml::Value::String("step".to_string()),
+        );
+        base.extend(env_to_string(&step));
+        assert_eq!(base["A"], "step");
     }
 }

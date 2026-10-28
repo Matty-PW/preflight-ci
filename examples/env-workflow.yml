@@ -1,0 +1,22 @@
+name: Env test
+
+env:
+  FROM_WORKFLOW: workflow-level
+  OVERRIDDEN: workflow-value
+  CI: true
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    env:
+      FROM_JOB: job-level
+      OVERRIDDEN: job-value
+    steps:
+      - name: Show env
+        run: echo "$FROM_WORKFLOW | $FROM_JOB | $OVERRIDDEN | $CI | $FROM_STEP"
+        env:
+          FROM_STEP: step-level
+      - name: Step overrides job
+        run: echo "OVERRIDDEN is $OVERRIDDEN"
+        env:
+          OVERRIDDEN: step-value
